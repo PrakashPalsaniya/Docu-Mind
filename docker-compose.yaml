@@ -1,0 +1,26 @@
+services:
+  valkey:
+    image: valkey/valkey
+    ports: 
+      - "6379:6379"
+
+  qdrant:
+    image: qdrant/qdrant
+    ports:
+      - "6333:6333"
+  postgres:
+    image: postgres:15
+    container_name: pdf-rag-postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=pdf_rag
+    ports:
+      - "5432:5432"
+
+  adminer: 
+    image: adminer
+    restart: always
+    ports:
+      - "8080:8080"
