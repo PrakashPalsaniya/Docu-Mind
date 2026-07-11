@@ -4,6 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
+    "start:worker": "node worker.js",
+    "start:all": "node start-all.js",
     "dev": "node --watch index.js",
     "dev:worker": "node --watch worker.js",
     "eval": "node eval/evaluate.js",
