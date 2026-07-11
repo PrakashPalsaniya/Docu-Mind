@@ -4,16 +4,21 @@ import { QdrantVectorStore } from "@langchain/qdrant";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { rerank } from "./rerank.js";
 
-
-// Local on-device embeddings (all-MiniLM-L6-v2, 384-dim, no API key).
 const COLLECTION = "pdf_embeddings_local";
 const VECTOR_SIZE = 384;
+
+function newQdrantClient() {
+  return new QdrantClient({
+    url: process.env.QDRANT_URL,
+    apiKey: process.env.QDRANT_API_KEY,
+    checkCompatibility: false,
+  });
+}
 
 export const embeddings = new HuggingFaceTransformersEmbeddings({
   model: "Xenova/all-MiniLM-L6-v2",
 });
 
-// Chat LLM via OpenRouter (OpenAI-compatible).
 export function getChatModel(temperature = 0.3) {
   return new ChatOpenAI({
     apiKey: process.env.OPENROUTER_API_KEY,
@@ -26,10 +31,7 @@ export function getChatModel(temperature = 0.3) {
 }
 
 async function ensureCollection() {
-  const client = new QdrantClient({
-    url: process.env.QDRANT_URL,
-    checkCompatibility: false,
-  });
+  const client = newQdrantClient();
 
   const { collections } = await client.getCollections();
   const exists = collections.some((c) => c.name === COLLECTION);
@@ -44,28 +46,23 @@ export async function getVectorStore() {
   await ensureCollection();
   return QdrantVectorStore.fromExistingCollection(embeddings, {
     url: process.env.QDRANT_URL,
+    apiKey: process.env.QDRANT_API_KEY,
     collectionName: COLLECTION,
   });
 }
 
-// Delete all vectors for a user's PDF (no orphaned chunks left behind).
 export async function deleteVectorsForPdf({ userId, pdfId }) {
-  const client = new QdrantClient({
-    url: process.env.QDRANT_URL,
-    checkCompatibility: false,
-  });
+  const client = newQdrantClient();
   try {
     await client.delete(COLLECTION, {
       filter: qdrantFilter(userId, pdfId),
       wait: true,
     });
   } catch (err) {
-    // collection may not exist yet (PDF failed before embedding) — nothing to delete
     console.error("deleteVectorsForPdf:", err?.message || err);
   }
 }
 
-// Retrieve chunks for a user's PDF (vector-only).
 export async function retrieveForPdf(query, { userId, pdfId, k = 4 }) {
   const store = await getVectorStore();
   const filter = {
@@ -84,12 +81,8 @@ const qdrantFilter = (userId, pdfId) => ({
   ],
 });
 
-// Pull every chunk for a PDF to build an in-memory BM25 index.
 async function loadAllChunks(userId, pdfId) {
-  const client = new QdrantClient({
-    url: process.env.QDRANT_URL,
-    checkCompatibility: false,
-  });
+  const client = newQdrantClient();
 
   const out = [];
   let offset = undefined;
@@ -119,7 +112,6 @@ const tokenize = (s) =>
     .split(/\s+/)
     .filter(Boolean);
 
-// Minimal, dependency-free BM25 ranking over the PDF's chunks.
 function bm25Rank(query, docs, k = 10) {
   const N = docs.length;
   if (!N) return [];
@@ -130,7 +122,7 @@ function bm25Rank(query, docs, k = 10) {
   const docLen = docTokens.map((t) => t.length);
   const avgdl = docLen.reduce((a, c) => a + c, 0) / N || 1;
 
-  const df = new Map(); // doc frequency per term
+  const df = new Map();
   docTokens.forEach((toks) => {
     new Set(toks).forEach((t) => df.set(t, (df.get(t) || 0) + 1));
   });
@@ -158,7 +150,6 @@ function bm25Rank(query, docs, k = 10) {
     .map((s) => s.doc);
 }
 
-// Reciprocal Rank Fusion: combine multiple ranked lists into one.
 function reciprocalRankFusion(lists, keyOf, kRRF = 60) {
   const agg = new Map();
   for (const list of lists) {
@@ -172,23 +163,19 @@ function reciprocalRankFusion(lists, keyOf, kRRF = 60) {
   return [...agg.values()].sort((a, b) => b.score - a.score).map((x) => x.item);
 }
 
-// Hybrid retriever: dense + BM25 fused with RRF, then cross-encoder reranked.
 export async function hybridRetrieveForPdf(
   query,
   { userId, pdfId, k = 4, candidatePool = 10 }
 ) {
   const store = await getVectorStore();
 
-  // 1) dense retrieval from Qdrant
   const dense = (
     await store.similaritySearch(query, candidatePool, qdrantFilter(userId, pdfId))
   ).map((d) => ({ content: d.pageContent, metadata: d.metadata }));
 
-  // 2) sparse BM25 over all chunks of this PDF
   const allChunks = await loadAllChunks(userId, pdfId);
   const sparse = bm25Rank(query, allChunks, candidatePool);
 
-  // 3) fuse both lists with RRF (dedupe by content), fall back to dense if empty
   const keyOf = (d) => (d.content || "").slice(0, 120);
   const fused = reciprocalRankFusion([dense, sparse], keyOf).slice(
     0,
@@ -196,9 +183,6 @@ export async function hybridRetrieveForPdf(
   );
   const pool = fused.length ? fused : dense;
 
-  // 4) cross-encoder rerank the pool, keep top-k
   const reranked = await rerank(query, pool, k);
   return reranked;
 }
-
-

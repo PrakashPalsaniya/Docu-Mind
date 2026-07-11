@@ -26,6 +26,7 @@ import {
 } from "./controllers/chatController.js";
 import { clerkWebhook } from "./controllers/clerkWebhook.js";
 import { s3Enabled } from "./lib/s3.js";
+import { bullConnection } from "./lib/redis.js";
 
 
 dotenv.config();
@@ -38,18 +39,12 @@ if (!s3Enabled) {
 
 const app = express();
 
-// trust the proxy so req.ip is the real client IP
 app.set("trust proxy", 1);
 
-
 const queue = new Queue("file-upload-queue", {
-  connection: {
-    host: process.env.REDIS_HOST || "localhost",
-    port: parseInt(process.env.REDIS_PORT) || 6379,
-  },
+  connection: bullConnection(),
 });
 
-// Uploads are held in memory and streamed straight to S3.
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
@@ -59,7 +54,6 @@ const upload = multer({
   },
 });
 
-// explicit allowlist — never fall back to allow-any-origin
 const allowedOrigins = (
   process.env.CORS_ORIGINS ||
   "http://localhost:5173,http://127.0.0.1:5173"
@@ -79,7 +73,6 @@ app.use(
 );
 
 
-// Clerk webhook needs the raw body for signature verification
 app.post(
   "/webhook/clerk",
   express.raw({ type: "application/json" }),
@@ -151,7 +144,6 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-// error handler (must be last, four args); returns JSON, never leaks stack traces
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {

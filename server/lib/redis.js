@@ -1,5 +1,18 @@
-// Shared Redis/Valkey client used by the rate limiter.
 import Redis from "ioredis";
+
+export function baseConnection() {
+  const conn = {
+    host: process.env.REDIS_HOST || "localhost",
+    port: parseInt(process.env.REDIS_PORT) || 6379,
+  };
+  if (process.env.REDIS_USERNAME) conn.username = process.env.REDIS_USERNAME;
+  if (process.env.REDIS_PASSWORD) conn.password = process.env.REDIS_PASSWORD;
+  return conn;
+}
+
+export function bullConnection() {
+  return { ...baseConnection(), maxRetriesPerRequest: null };
+}
 
 let _client = null;
 
@@ -7,9 +20,7 @@ export function getRedis() {
   if (_client) return _client;
 
   _client = new Redis({
-    host: process.env.REDIS_HOST || "localhost",
-    port: parseInt(process.env.REDIS_PORT) || 6379,
-    // fail fast if Valkey is down so the rate limiter can fail open instead of blocking traffic
+    ...baseConnection(),
     maxRetriesPerRequest: 1,
     enableOfflineQueue: false,
     lazyConnect: false,

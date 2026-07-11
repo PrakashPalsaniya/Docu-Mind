@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import { getVectorStore } from "./lib/ai.js";
 import { prisma } from "./lib/db.js";
 import { downloadToTemp } from "./lib/s3.js";
+import { bullConnection } from "./lib/redis.js";
 
 dotenv.config();
 
@@ -26,7 +27,6 @@ const worker = new Worker(
     const { s3Key, pdfId, userId } = job.data;
     console.log("Processing PDF:", { pdfId, userId, s3Key });
 
-    // Download the object from S3 to a temp file we clean up afterwards.
     let filePath = null;
 
     try {
@@ -35,7 +35,6 @@ const worker = new Worker(
       const docs = await new PDFLoader(filePath).load();
       const chunks = await splitter.splitDocuments(docs);
 
-      // scanned/image-only PDFs extract no text — fail instead of storing an unsearchable doc
       const hasText = chunks.some((c) => (c.pageContent || "").trim().length > 0);
       if (!hasText) {
         throw new Error(
@@ -43,7 +42,6 @@ const worker = new Worker(
         );
       }
 
-      // tag chunks so retrieval can filter per user + document
       chunks.forEach((chunk) => {
         chunk.metadata.userId = userId;
         chunk.metadata.pdfId = pdfId;
@@ -51,7 +49,6 @@ const worker = new Worker(
 
       const store = await getVectorStore();
 
-      // batch embeddings so a large PDF doesn't spike memory
       const BATCH = 50;
       for (let i = 0; i < chunks.length; i += BATCH) {
         await store.addDocuments(chunks.slice(i, i + BATCH));
@@ -74,9 +71,7 @@ const worker = new Worker(
           })
           .catch(() => {});
       }
-
     } finally {
-      // always remove the temp copy we downloaded from S3
       if (filePath && fs.existsSync(filePath)) {
         try {
           fs.unlinkSync(filePath);
@@ -88,10 +83,7 @@ const worker = new Worker(
   },
   {
     concurrency: 5,
-    connection: {
-      host: process.env.REDIS_HOST || "localhost",
-      port: parseInt(process.env.REDIS_PORT) || 6379,
-    },
+    connection: bullConnection(),
   }
 );
 

@@ -1,11 +1,9 @@
-// Semantic answer cache: matches past questions by meaning to skip the pipeline.
-// Config: SEMANTIC_CACHE_{ENABLED,THRESHOLD,TTL_HOURS}.
 import { randomUUID } from "crypto";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { embeddings } from "./ai.js";
 
 const CACHE_COLLECTION = "qa_cache_local";
-const VECTOR_SIZE = 384; // must match all-MiniLM-L6-v2
+const VECTOR_SIZE = 384;
 
 const enabled = () =>
   (process.env.SEMANTIC_CACHE_ENABLED ?? "true").toLowerCase() !== "false";
@@ -22,6 +20,7 @@ function client() {
   if (!_client)
     _client = new QdrantClient({
       url: process.env.QDRANT_URL,
+      apiKey: process.env.QDRANT_API_KEY,
       checkCompatibility: false,
     });
 
@@ -47,7 +46,6 @@ const filterFor = (userId, pdfId) => ({
   ],
 });
 
-// Look up a meaning-equivalent past question. Returns payload on hit, null on miss.
 export async function lookupCache(question, { userId, pdfId }) {
   if (!enabled()) return null;
   try {
@@ -69,7 +67,6 @@ export async function lookupCache(question, { userId, pdfId }) {
       `⚡ CACHE HIT (similarity ${hit.score.toFixed(3)}) — skipped RAG+LLM pipeline for: "${question}"`
     );
     return {
-
       answer: hit.payload.answer,
       sources: hit.payload.sources ?? [],
       sourceType: hit.payload.sourceType ?? "document",
@@ -82,7 +79,6 @@ export async function lookupCache(question, { userId, pdfId }) {
   }
 }
 
-// Store a fresh answer so future similar questions hit the cache. Never throws.
 export async function storeInCache(
   question,
   { userId, pdfId, answer, sources = [], sourceType = "document" }
