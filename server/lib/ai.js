@@ -30,6 +30,21 @@ export function getChatModel(temperature = 0.3) {
   });
 }
 
+async function ensurePayloadIndex(client, collection, field) {
+  try {
+    await client.createPayloadIndex(collection, {
+      field_name: field,
+      field_schema: "keyword",
+      wait: true,
+    });
+  } catch (err) {
+    // ignore "already exists" and similar; filtering just needs the index present
+    if (!/already exists|exists/i.test(err?.message || "")) {
+      console.error(`ensurePayloadIndex ${collection}.${field}:`, err?.message || err);
+    }
+  }
+}
+
 async function ensureCollection() {
   const client = newQdrantClient();
 
@@ -40,6 +55,10 @@ async function ensureCollection() {
       vectors: { size: VECTOR_SIZE, distance: "Cosine" },
     });
   }
+
+  // Qdrant Cloud requires payload indexes to filter on these fields.
+  await ensurePayloadIndex(client, COLLECTION, "metadata.userId");
+  await ensurePayloadIndex(client, COLLECTION, "metadata.pdfId");
 }
 
 export async function getVectorStore() {

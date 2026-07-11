@@ -27,6 +27,20 @@ function client() {
   return _client;
 }
 
+async function ensurePayloadIndex(c, field) {
+  try {
+    await c.createPayloadIndex(CACHE_COLLECTION, {
+      field_name: field,
+      field_schema: "keyword",
+      wait: true,
+    });
+  } catch (err) {
+    if (!/already exists|exists/i.test(err?.message || "")) {
+      console.error(`ensurePayloadIndex ${CACHE_COLLECTION}.${field}:`, err?.message || err);
+    }
+  }
+}
+
 async function ensureCollection() {
   if (_collectionReady) return;
   const c = client();
@@ -36,6 +50,9 @@ async function ensureCollection() {
       vectors: { size: VECTOR_SIZE, distance: "Cosine" },
     });
   }
+  // Qdrant Cloud requires payload indexes to filter on these fields.
+  await ensurePayloadIndex(c, "userId");
+  await ensurePayloadIndex(c, "pdfId");
   _collectionReady = true;
 }
 
