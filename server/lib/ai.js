@@ -84,13 +84,7 @@ export async function deleteVectorsForPdf({ userId, pdfId }) {
 
 export async function retrieveForPdf(query, { userId, pdfId, k = 4 }) {
   const store = await getVectorStore();
-  const filter = {
-    must: [
-      { key: "metadata.userId", match: { value: userId } },
-      { key: "metadata.pdfId", match: { value: pdfId } },
-    ],
-  };
-  return store.similaritySearchWithScore(query, k, filter);
+  return store.similaritySearchWithScore(query, k, qdrantFilter(userId, pdfId));
 }
 
 const qdrantFilter = (userId, pdfId) => ({

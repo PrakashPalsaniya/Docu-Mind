@@ -2,7 +2,7 @@
 // global across instances, fails open if the backend is down.
 import { getRedis } from "./redis.js";
 
-const SLIDING_WINDOW_LUA = `
+const FIXED_WINDOW_LUA = `
 local current = redis.call('INCR', KEYS[1])
 if current == 1 then
   redis.call('PEXPIRE', KEYS[1], ARGV[1])
@@ -24,7 +24,7 @@ export function rateLimit({ windowMs, max, name = "default", keyGenerator }) {
 
     try {
       const [count, ttl] = await redis.eval(
-        SLIDING_WINDOW_LUA,
+        FIXED_WINDOW_LUA,
         1,
         key,
         String(windowMs)

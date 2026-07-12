@@ -43,7 +43,12 @@ export const getPdfFile = async (req, res) => {
     const { body, contentType, contentLength } = await getObjectStream(pdf.fileUrl);
     res.setHeader("Content-Type", contentType);
     if (contentLength) res.setHeader("Content-Length", contentLength);
-    res.setHeader("Content-Disposition", `inline; filename="${pdf.name}"`);
+    const asciiName = (pdf.name || "file.pdf").replace(/[^\w.\-]/g, "_");
+    const utf8Name = encodeURIComponent(pdf.name || "file.pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`
+    );
 
     body.on("error", (err) => {
       console.error("PDF stream error:", err.message);

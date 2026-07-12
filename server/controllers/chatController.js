@@ -75,18 +75,40 @@ export const chatStreamController = async (req, res) => {
   const send = (event, data) =>
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
-  try {
-    let answer = "";
-    let sources = [];
-    let sourceType = "document";
-    let cached = false;
+  let answer = "";
+  let sources = [];
+  let sourceType = "document";
+  let cached = false;
+  let saved = false;
 
+  const persist = async () => {
+    if (saved) return;
+    saved = true;
+    try {
+      await prisma.chat.createMany({
+        data: [
+          { role: "USER", content: query, pdfId, userId },
+          { role: "AI", content: answer, sources, pdfId, userId },
+        ],
+      });
+    } catch (err) {
+      console.error("Failed to persist chat:", err.message);
+    }
+  };
+
+  let clientGone = false;
+  req.on("close", () => {
+    clientGone = true;
+  });
+
+  try {
     for await (const update of streamAgent({
       question: query,
       userId,
       pdfId,
       history: ctx.history,
     })) {
+      if (clientGone) break;
       if (update.token !== undefined) {
         send("token", { token: update.token });
         continue;
@@ -105,12 +127,12 @@ export const chatStreamController = async (req, res) => {
       }
     }
 
-    await prisma.chat.createMany({
-      data: [
-        { role: "USER", content: query, pdfId, userId },
-        { role: "AI", content: answer, sources, pdfId, userId },
-      ],
-    });
+    if (answer) await persist();
+
+    if (clientGone) {
+      res.end();
+      return;
+    }
 
     send("final", { answer, sources, sourceType, cached });
 
@@ -118,6 +140,7 @@ export const chatStreamController = async (req, res) => {
     res.end();
   } catch (error) {
     console.error("Error in /chat/stream:", error);
+    if (answer) await persist();
     send("error", { error: error.message });
     res.end();
   }

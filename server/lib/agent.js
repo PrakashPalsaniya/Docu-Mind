@@ -18,6 +18,7 @@ const GraphState = Annotation.Root({
   answer: Annotation(),
   sources: Annotation({ default: () => [] }),
   sourceType: Annotation({ default: () => "document" }),
+  noAnswer: Annotation({ default: () => false }),
   trace: Annotation({ reducer: (a, b) => [...a, ...b], default: () => [] }),
 });
 
@@ -191,6 +192,7 @@ async function noAnswerNode() {
     answer:
       "I couldn't find information about that in this document or on the web. Try rephrasing your question.",
     sources: [],
+    noAnswer: true,
     trace: [{ step: "no_answer", detail: "No relevant information found anywhere" }],
   };
 }
@@ -259,13 +261,15 @@ export async function runAgent({ question, userId, pdfId, history }) {
 
       const result = await graph.invoke({ question, userId, pdfId, history });
 
-      storeInCache(question, {
-        userId,
-        pdfId,
-        answer: result.answer,
-        sources: result.sources,
-        sourceType: result.sourceType,
-      });
+      if (!result.noAnswer) {
+        storeInCache(question, {
+          userId,
+          pdfId,
+          answer: result.answer,
+          sources: result.sources,
+          sourceType: result.sourceType,
+        });
+      }
 
       report({
         steps: result.trace,
@@ -291,6 +295,7 @@ export async function* streamAgent({ question, userId, pdfId, history }) {
   let finalAnswer;
   let finalSources = [];
   let finalSourceType = "document";
+  let finalNoAnswer = false;
 
   const cached = await lookupCache(question, { userId, pdfId });
   if (cached) {
@@ -310,6 +315,7 @@ export async function* streamAgent({ question, userId, pdfId, history }) {
         cached: true,
       },
     };
+    if (cached.answer) yield { token: cached.answer };
     return;
   }
 
@@ -333,18 +339,21 @@ export async function* streamAgent({ question, userId, pdfId, history }) {
         if (nodeState?.answer !== undefined) finalAnswer = nodeState.answer;
         if (nodeState?.sources) finalSources = nodeState.sources;
         if (nodeState?.sourceType) finalSourceType = nodeState.sourceType;
+        if (nodeState?.noAnswer) finalNoAnswer = true;
       }
       yield chunk;
     }
   })();
 
-  storeInCache(question, {
-    userId,
-    pdfId,
-    answer: finalAnswer,
-    sources: finalSources,
-    sourceType: finalSourceType,
-  });
+  if (!finalNoAnswer) {
+    storeInCache(question, {
+      userId,
+      pdfId,
+      answer: finalAnswer,
+      sources: finalSources,
+      sourceType: finalSourceType,
+    });
+  }
 
   withTrace({ name: "agent-stream", userId, input: question }, async (report) => {
     report({
