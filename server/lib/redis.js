@@ -21,8 +21,10 @@ export function getRedis() {
 
   _client = new Redis({
     ...baseConnection(),
+    // maxRetriesPerRequest bounds the wait, so the offline queue stays on:
+    // commands issued before `ready` queue instead of throwing "Stream isn't
+    // writeable", and a genuinely dead backend still errors fast (fail-open).
     maxRetriesPerRequest: 1,
-    enableOfflineQueue: false,
     lazyConnect: false,
   });
 

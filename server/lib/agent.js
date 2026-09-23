@@ -213,7 +213,7 @@ const graph = new StateGraph(GraphState)
   .addNode("grade", gradeNode)
   .addNode("webSearch", webSearchNode)
   .addNode("generate", generateNode)
-  .addNode("noAnswer", noAnswerNode)
+  .addNode("noResult", noAnswerNode)
   .addEdge(START, "rewrite")
   .addEdge("rewrite", "retrieve")
   .addEdge("retrieve", "grade")
@@ -224,10 +224,10 @@ const graph = new StateGraph(GraphState)
   })
   .addConditionalEdges("webSearch", afterWebSearch, {
     generate: "generate",
-    noAnswer: "noAnswer",
+    noAnswer: "noResult",
   })
   .addEdge("generate", END)
-  .addEdge("noAnswer", END)
+  .addEdge("noResult", END)
   .compile();
 
 export async function runAgent({ question, userId, pdfId, history }) {
